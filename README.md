@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="preview/akimpreview.png" alt="Akim GRUB" width="100%">
+</p>
+
 # AKIM GRUB Theme
 
 A custom GRUB theme made by me.
@@ -5,8 +9,8 @@ A custom GRUB theme made by me.
 ## Install
 
 ```bash
-git clone https://github.com/USERNAME/REPO.git
-cd REPO
+git clone https://github.com/akimsupernova/akim-grub-theme
+cd akim-grub-theme
 ./setup install
 ```
 
