@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  AKIM GRUB theme - installer
+#
+#  Usage:
+#    ./setup install      install the theme (one run, active right away)
+#    ./setup update       regenerate grub.cfg and re-apply the icon classes
+#                         (run this after every grub / kernel update)
+#    ./setup uninstall    remove the theme
+#    ./setup help
+#
+#  Options (environment variables):
+#    THEME_NAME=akimori   theme folder name under /boot/grub/themes/
+#    GRUB_DIR=/boot/grub  GRUB directory
+#    GRUB_CFG=...         path to grub.cfg
+#    NO_MKCONFIG=1        do not run grub-mkconfig (only copy files + edit config)
+# =============================================================================
+set -euo pipefail
+
+THEME_NAME="${THEME_NAME:-akimori}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$REPO_DIR/theme"
+DEFAULT_FILE="${DEFAULT_FILE:-/etc/default/grub}"
+
+c_info=$'\e[1;35m'; c_ok=$'\e[1;32m'; c_err=$'\e[1;31m'; c_off=$'\e[0m'
+info() { echo "${c_info}==>${c_off} $*"; }
+ok()   { echo "${c_ok}OK${c_off}  $*"; }
+die()  { echo "${c_err}ERROR:${c_off} $*" >&2; exit 1; }
+
+usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+need_root() {
+  if [[ $EUID -ne 0 ]]; then
+    command -v sudo >/dev/null || die "Please run as root (sudo not found)."
+    info "Root required, re-running with sudo..."
+    exec sudo -E "$0" "$@"
+  fi
+}
+
+detect_grub() {
+  if [[ -z "${GRUB_DIR:-}" ]]; then
+    if   [[ -d /boot/grub  ]]; then GRUB_DIR=/boot/grub
+    elif [[ -d /boot/grub2 ]]; then GRUB_DIR=/boot/grub2
+    else die "GRUB directory not found (/boot/grub or /boot/grub2). Set GRUB_DIR=..."
+    fi
+  fi
+  GRUB_CFG="${GRUB_CFG:-$GRUB_DIR/grub.cfg}"
+
+  if   command -v grub-mkconfig  >/dev/null; then MKCONFIG=grub-mkconfig
+  elif command -v grub2-mkconfig >/dev/null; then MKCONFIG=grub2-mkconfig
+  elif [[ -n "${NO_MKCONFIG:-}" ]]; then MKCONFIG=true
+  else die "grub-mkconfig not found. Is GRUB installed?"
+  fi
+
+  THEME_DIR="$GRUB_DIR/themes/$THEME_NAME"
+}
+
+copy_theme() {
+  [[ -f "$SRC_DIR/theme.txt" ]] || die "theme/theme.txt is missing. Run ./setup from inside the cloned repo."
+  info "Copying theme to $THEME_DIR"
+  rm -rf "$THEME_DIR"
+  mkdir -p "$THEME_DIR"
+  cp -a "$SRC_DIR"/. "$THEME_DIR"/
+  find "$THEME_DIR" -name '*.bak' -delete
+  chmod -R u=rwX,go=rX "$THEME_DIR"
+  chmod +x "$THEME_DIR/fit-menu.sh" 2>/dev/null || true
+}
+
+configure_default() {
+  [[ -f "$DEFAULT_FILE" ]] || die "$DEFAULT_FILE not found."
+  [[ -f "$DEFAULT_FILE.akim.bak" ]] || cp -a "$DEFAULT_FILE" "$DEFAULT_FILE.akim.bak"
+  info "Setting GRUB_THEME in $DEFAULT_FILE (backup: $DEFAULT_FILE.akim.bak)"
+
+  sed -i -E '/^[[:space:]]*#?[[:space:]]*GRUB_THEME=/d' "$DEFAULT_FILE"
+  printf '\n# AKIM theme\nGRUB_THEME="%s/theme.txt"\n' "$THEME_DIR" >> "$DEFAULT_FILE"
+
+  sed -i -E 's/^([[:space:]]*GRUB_TERMINAL(_OUTPUT)?=.*console.*)$/# \1  # disabled by AKIM theme/' "$DEFAULT_FILE"
+
+  if grep -qE '^[[:space:]]*GRUB_GFXMODE=' "$DEFAULT_FILE"; then
+    sed -i -E 's/^[[:space:]]*GRUB_GFXMODE=.*/GRUB_GFXMODE=1920x1080/' "$DEFAULT_FILE"
+  else
+    echo 'GRUB_GFXMODE=1920x1080,auto' >> "$DEFAULT_FILE"
+  fi
+}
+
+regen_cfg() {
+  if [[ -n "${NO_MKCONFIG:-}" ]]; then
+    info "NO_MKCONFIG is set, skipping grub-mkconfig"; return
+  fi
+  [[ -f "$GRUB_CFG" ]] && cp -a "$GRUB_CFG" "$GRUB_CFG.akim.bak"
+  info "Generating grub.cfg ($MKCONFIG -o $GRUB_CFG)"
+  "$MKCONFIG" -o "$GRUB_CFG"
+}
+
+# GRUB themes pick icons from --class values. The stock 'Advanced options'
+# submenu and 'UEFI Firmware Settings' entry have no class, so I add them here.
+# Safe to run repeatedly (never duplicates a class).
+patch_classes() {
+  [[ -f "$GRUB_CFG" ]] || { info "grub.cfg not found, skipping icon classes"; return; }
+  info "Adding icon classes (submenu, uefi-firmware) to grub.cfg"
+  sed -i -E \
+    -e "/--class submenu/! s/^(submenu 'Advanced options for [^']*') /\1 --class submenu /" \
+    -e "/--class uefi-firmware/! s/^([[:space:]]*menuentry 'UEFI Firmware Settings') /\1 --class uefi-firmware /" \
+    "$GRUB_CFG"
+}
+
+fit_menu() {
+  [[ -x "$THEME_DIR/fit-menu.sh" ]] || return 0
+  [[ -r "$GRUB_CFG" ]] || return 0
+  info "Fitting the menu height to the number of entries"
+  GRUB_CFG="$GRUB_CFG" bash "$THEME_DIR/fit-menu.sh" | sed 's/^/    /'
+  rm -f "$THEME_DIR/theme.txt.bak"
+}
+
+cmd_install() {
+  need_root install
+  detect_grub
+  copy_theme
+  configure_default
+  regen_cfg
+  patch_classes
+  fit_menu
+  echo
+  ok "Theme '$THEME_NAME' installed. Reboot to see it."
+  echo "   Icons gone after a grub/kernel update?  ->  ./setup update"
+}
+
+cmd_update() {
+  need_root update
+  detect_grub
+  [[ -d "$THEME_DIR" ]] || die "Theme is not installed yet. Run ./setup install first."
+  regen_cfg
+  patch_classes
+  fit_menu
+  ok "Done."
+}
+
+cmd_uninstall() {
+  need_root uninstall
+  detect_grub
+  info "Removing theme"
+  rm -rf "$THEME_DIR"
+  if [[ -f "$DEFAULT_FILE" ]]; then
+    sed -i -E "\|^GRUB_THEME=.*/$THEME_NAME/theme.txt|d; /^# AKIM theme\$/d" "$DEFAULT_FILE"
+  fi
+  regen_cfg
+  ok "Theme removed. (Original config backup: $DEFAULT_FILE.akim.bak)"
+}
+
+case "${1:-help}" in
+  install)   cmd_install ;;
+  update)    cmd_update ;;
+  uninstall) cmd_uninstall ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac

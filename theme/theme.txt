@@ -1,0 +1,71 @@
+# ===== akim GRUB theme =====
+
+# Prevent GRUB from displaying its fallback title.
+title-text: ""
+
+desktop-image: "background.png"
+desktop-color: "#0b0418"
+
+terminal-font: "Google Sans Flex Regular 24"
+message-font: "Google Sans Flex Regular 24"
+message-color: "#ffffff"
+message-bg-color: "#12041f"
+
+# Title
++ label {
+    left = 25%
+    top = 19%
+    width = 50%
+    align = "center"
+    text = "HI THERE WELCOME!"
+    font = "Google Sans Flex Regular 28"
+    color = "#ffffff"
+}
+
+# Boot menu
++ boot_menu {
+    left = 50%-360
+    top = 28%-2
+    width = 720
+    height = 446
+
+    menu_pixmap_style = "menu_*.png"
+    selected_item_pixmap_style = "select_*.png"
+
+    item_font = "Google Sans Flex Regular 24"
+    item_color = "#eee5ff"
+    selected_item_font = "Google Sans Flex Regular 24"
+    selected_item_color = "#eee5ff"
+
+    icon_width = 36
+    icon_height = 36
+    item_icon_space = 20
+    item_height = 40
+    item_padding = 12
+    item_spacing = 14
+
+    scrollbar = false
+}
+
+# Navigation hint
++ label {
+    left = 25%
+    top = 77%+2
+    width = 50%
+    align = "center"
+    text = "Select an operating system"
+    font = "Google Sans Flex Regular 20"
+    color = "#d9c4ff"
+}
+
+# Auto-boot countdown
++ label {
+    id = "__timeout__"
+    left = 25%
+    top = 83%-2
+    width = 50%
+    align = "center"
+    text = "Booting in %d seconds"
+    font = "Google Sans Flex Regular 20"
+    color = "#ffb4f5"
+}
