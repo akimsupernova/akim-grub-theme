@@ -29,6 +29,7 @@ die()  { echo "${c_err}ERROR:${c_off} $*" >&2; exit 1; }
 
 usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
+# --- root ---------------------------------------------------------------------
 need_root() {
   if [[ $EUID -ne 0 ]]; then
     command -v sudo >/dev/null || die "Please run as root (sudo not found)."
@@ -37,6 +38,7 @@ need_root() {
   fi
 }
 
+# --- GRUB detection -----------------------------------------------------------
 detect_grub() {
   if [[ -z "${GRUB_DIR:-}" ]]; then
     if   [[ -d /boot/grub  ]]; then GRUB_DIR=/boot/grub
@@ -55,29 +57,34 @@ detect_grub() {
   THEME_DIR="$GRUB_DIR/themes/$THEME_NAME"
 }
 
+# --- steps --------------------------------------------------------------------
 copy_theme() {
   [[ -f "$SRC_DIR/theme.txt" ]] || die "theme/theme.txt is missing. Run ./setup from inside the cloned repo."
   info "Copying theme to $THEME_DIR"
   rm -rf "$THEME_DIR"
   mkdir -p "$THEME_DIR"
-  cp -a "$SRC_DIR"/. "$THEME_DIR"/
+  # /boot is often FAT (ESP), which cannot store ownership or permissions,
+  # so do not try to preserve them.
+  cp -r --no-preserve=mode,ownership,timestamps "$SRC_DIR"/. "$THEME_DIR"/
   find "$THEME_DIR" -name '*.bak' -delete
-  chmod -R u=rwX,go=rX "$THEME_DIR"
-  chmod +x "$THEME_DIR/fit-menu.sh" 2>/dev/null || true
+  chmod -R u=rwX,go=rX "$THEME_DIR" 2>/dev/null || true
 }
 
 configure_default() {
   [[ -f "$DEFAULT_FILE" ]] || die "$DEFAULT_FILE not found."
-  [[ -f "$DEFAULT_FILE.akim.bak" ]] || cp -a "$DEFAULT_FILE" "$DEFAULT_FILE.akim.bak"
+  [[ -f "$DEFAULT_FILE.akim.bak" ]] || cp "$DEFAULT_FILE" "$DEFAULT_FILE.akim.bak"
   info "Setting GRUB_THEME in $DEFAULT_FILE (backup: $DEFAULT_FILE.akim.bak)"
 
+  # remove any old GRUB_THEME line (including commented ones), then add ours
   sed -i -E '/^[[:space:]]*#?[[:space:]]*GRUB_THEME=/d' "$DEFAULT_FILE"
   printf '\n# AKIM theme\nGRUB_THEME="%s/theme.txt"\n' "$THEME_DIR" >> "$DEFAULT_FILE"
 
+  # graphical themes do not work when the terminal output is console-only
   sed -i -E 's/^([[:space:]]*GRUB_TERMINAL(_OUTPUT)?=.*console.*)$/# \1  # disabled by AKIM theme/' "$DEFAULT_FILE"
 
+  # match the resolution of background.png (1920x1080), fall back to auto
   if grep -qE '^[[:space:]]*GRUB_GFXMODE=' "$DEFAULT_FILE"; then
-    sed -i -E 's/^[[:space:]]*GRUB_GFXMODE=.*/GRUB_GFXMODE=1920x1080/' "$DEFAULT_FILE"
+    sed -i -E 's/^[[:space:]]*GRUB_GFXMODE=.*/GRUB_GFXMODE=1920x1080,auto/' "$DEFAULT_FILE"
   else
     echo 'GRUB_GFXMODE=1920x1080,auto' >> "$DEFAULT_FILE"
   fi
@@ -87,13 +94,13 @@ regen_cfg() {
   if [[ -n "${NO_MKCONFIG:-}" ]]; then
     info "NO_MKCONFIG is set, skipping grub-mkconfig"; return
   fi
-  [[ -f "$GRUB_CFG" ]] && cp -a "$GRUB_CFG" "$GRUB_CFG.akim.bak"
+  [[ -f "$GRUB_CFG" ]] && cp "$GRUB_CFG" "$GRUB_CFG.akim.bak" 2>/dev/null || true
   info "Generating grub.cfg ($MKCONFIG -o $GRUB_CFG)"
   "$MKCONFIG" -o "$GRUB_CFG"
 }
 
 # GRUB themes pick icons from --class values. The stock 'Advanced options'
-# submenu and 'UEFI Firmware Settings' entry have no class, so I add them here.
+# submenu and 'UEFI Firmware Settings' entry have no class, so we add them here.
 # Safe to run repeatedly (never duplicates a class).
 patch_classes() {
   [[ -f "$GRUB_CFG" ]] || { info "grub.cfg not found, skipping icon classes"; return; }
@@ -105,13 +112,14 @@ patch_classes() {
 }
 
 fit_menu() {
-  [[ -x "$THEME_DIR/fit-menu.sh" ]] || return 0
+  [[ -f "$THEME_DIR/fit-menu.sh" ]] || return 0
   [[ -r "$GRUB_CFG" ]] || return 0
   info "Fitting the menu height to the number of entries"
   GRUB_CFG="$GRUB_CFG" bash "$THEME_DIR/fit-menu.sh" | sed 's/^/    /'
   rm -f "$THEME_DIR/theme.txt.bak"
 }
 
+# --- commands -----------------------------------------------------------------
 cmd_install() {
   need_root install
   detect_grub

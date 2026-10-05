@@ -47,7 +47,7 @@ if [ "$H" -gt "$MAX_H" ] && [ "$N" -gt 1 ]; then
   H=$(( BASE + N*ITEM_H + (N-1)*SPACING ))
 fi
 
-cp -a "$THEME" "$THEME.bak"
+cp "$THEME" "$THEME.bak"
 sed -i -E "s/^([[:space:]]*height = )[0-9]+/\1$H/; s/^([[:space:]]*item_spacing = )[0-9]+/\1$SPACING/" "$THEME"
 
 echo "Entries detected : $N"
